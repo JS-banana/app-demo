@@ -1,0 +1,23 @@
+{
+  "name": "app-demo",
+  "version": "1.0.0",
+  "description": "用于博客、学习、研究react、vue、node等前端相关内容的用例。",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JS-banana/app.git"
+  },
+  "keywords": [],
+  "author": "JS-banana",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/JS-banana/app/issues"
+  },
+  "homepage": "https://github.com/JS-banana/app#readme"
+}
