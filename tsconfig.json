@@ -11,7 +11,7 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "sourceMap": true,
-    // "allowJs": true,
+    "allowJs": true,
     // "paths": {
     //     "@/*": ["src/*"]
     // },
