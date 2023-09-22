@@ -1,10 +1,12 @@
-# 基于富文本编辑器的$关键字变量智能匹配功能
+# 基于富文本编辑器的$关键字智能匹配功能
 
 富文本编辑器，Multi-function Text Editor, 简称 MTE, 是一种可内嵌于浏览器，可以对文字、图片等进行编辑的，所见即所得的文本编辑器。
 
 <!-- 目前，市面上大多富文本编辑器是依靠浏览器提供的contenteditable以及execCommand这两大原生的API实现的。
 ，wangeditor则是其中之一首先，将外部容器（一般为div）的contenteditable属性设置为true，该容器中就可以进行键盘、鼠标等操作了。另外，添加一个工具栏（toolbar），借助 execCommand 命令，实现对容器中内容的编辑功能，比如：文字加粗、斜体、下划线功能等。
 但是，可以发现的是基于这种方案的富文本编辑器功能都比较基础且有限，对于指定关键字的触发无法实现，以及根据键盘输入的内容进行动态的变量匹配也未有实现，而基于此逻辑进一步实现的智能提示匹配更是功能更是没有。 -->
+
+在此，建议先了解下 选区（Selection）和范围（Range）的基本概念 （可以参考这篇文章[利用 javascript 实现富文本编辑器](https://juejin.cn/post/6844903508446019597)）
 
 ## 前言
 
@@ -34,69 +36,6 @@
 在检测到 `$` 字符时，自动把 `{}` 拼接上，并且把光标移动到 `${}` 之中。
 
 这里我以公司使用的 wangeditor v4 版本为例，不过，本文所提到的功能实现不局限于某一固定框架，主要是基于原生实现。
-
-在此，建议先了解下 选区（Selection）和范围（Range）的基本概念 （可以参考这篇文章[利用 javascript 实现富文本编辑器](https://juejin.cn/post/6844903508446019597)）
-
-### Range对象的简要介绍
-
-> 这里为了方便不了解的同学能够更有效的阅读，我简单概述下，不过，详细的属性方法还请自行了解。
-
-作为富文本编辑器，开发者需要有能力控制光标的各种状态信息，位置信息等。浏览器提供了 `selection` 对象和 `range` 对象来操作光标。
-
-```js
-let selection = window.getSelection();
-```
-
-通常情况下我们不会直接操作 `selection` 对象，而是需要操作用 `seleciton` 对象所对应的用户选择的 `ranges` (区域)，俗称”拖蓝“
-
-```js
-let range = selection.getRangeAt(0);
-```
-
-由于浏览器当前可能存在多个文本选取，所以 `getRangeAt` 函数接受一个索引值。在富文本编辑其中，我们不考虑多选取的可能性。
-
-selection 对象还有两个重要的方法， `addRange` 和 `removeAllRanges`。分别用于向当前选取添加一个 `range` 对象和 删除所有 `range` 对象。
-
-----
-
-例如富文本编辑器中有这么一段内容：
-
-`百度EUX团队`
-
-那么在富文本编辑器中的DOM结构就是这样：
-
-```html
-<p>百度EUX团队</p>
-```
-
-#### 1.光标位置（无拖选）
-
-![光标位置（无拖选）](https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2017/11/3/aefdf72accf2841e45ccfe858642e5a7~tplv-t2oaga2asx-jj-mark:3024:0:0:0:q75.awebp)
-
-打印出此时的 range 对象：
-
-![range 对象](https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2017/11/3/95ffae17dd99f65ec3fa57dc01d30182~tplv-t2oaga2asx-jj-mark:3024:0:0:0:q75.awebp)
-
-其中属性含义如下：
-
-- startContainer: range 范围的起始节点。
-- endContainer: range 范围的结束节点
-- startOffset: range 起点位置的偏移量。
-- endOffset: range 终点位置的偏移量。
-- commonAncestorContainer: 返回包含 startContainer 和 endContainer 的最深的节点。
-- collapsed: 返回一个用于判断Range 起始位置和终止位置是否相同的布尔值。
-
-这里我们的 startContainer , endContainer, commonAncestorContainer都为 #text 文本节点 ‘百度EUX团队’。因为光标在‘度‘字后面，所以startOffset 和 endOffset 均为 2。且没有产生拖蓝，所以 collapsed 的值为 true。我们再看一个产生拖蓝的例子：
-
-#### 2.光标位置（有拖选）
-
-![光标位置（有拖选）](https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2017/11/3/99754c9c079ef1ea9d87bdd30cb34ce3~tplv-t2oaga2asx-jj-mark:3024:0:0:0:q75.awebp)
-
-打印出此时的 range 对象：
-
-![range 对象](https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2017/11/3/0b0a935ad4c002261eca6866fee414e1~tplv-t2oaga2asx-jj-mark:3024:0:0:0:q75.awebp)
-
-由于产生了拖蓝 startContainer 和 endContainer 不再一致，collapsed 的值变为了 false。startOffset 和 endOffset 正好代表了拖蓝的起终位置
 
 ### 页面代码基本结构
 
@@ -455,8 +394,71 @@ if ((range.startOffset > start && start >= 0) && (range.endOffset <= end && end 
 
 答案是这样的：
 
-1. 针对用例这样的内容，结果并不绝对，可能和我点的位置有关系，有时在变量文本节点内，有时不在，看似正常，但是这样的结果非常不可靠，不是我们所能控制的
-2. 对于 `${startTime}` 这样的文本，位于文本末尾时，基本上是非常确定的，在点击后，会跑到 span 标签中——我们的变量文本节点内
+1. 针对用例这样的内容，结果并不绝对，可能和我点击的位置有关系，有时在变量文本节点内，有时不在，看似正常，但是这样的结果非常不可靠，不是我们所能控制的
+2. 对于 `${startTime}` 这样的文本，位于文本末尾时，基本上是非常确定的，在点击后，会跑到 span 标签中——我们的变量文本节点内。
+
+那么我所希望的是，存在 `${startTime}` 这种插入后的变量文本标签时，当我点击 `}` 后面的位置，那么它就应该是处于变量文本节点外。
+
+分析下情况：
+
+1. 首先要判断光标位置是否在变量后面和空占位符前面
+2. 变量文本节点处在末尾
+3. 变量文本节点处在行中
+4. 键盘操作的联动处理，如 删除键
+
+同样的，这里的逻辑也是放在 `selectionchange` 事件中处理，相关逻辑抽离到 `filterEmptyText` 函数中
+
+```js
+function selectionchange() {
+  const selection = document.getSelection()
+  const range = selection.getRangeAt(0)
+  // console.log('range', range)
+  filterEmptyText(selection, range)
+}
+```
+
+这里需要注意的是：在键盘处于操作的时候，恰当地控制函数的执行。
+
+- 因为编辑区光标的变动会直接触发该函数的执行，需要避免产生逻辑冲突
+- 删除键也需要单独处理，它会直接影响光标的位置是否在变量文本节点末尾
+- 为了更好的控制变量节点，这里考虑视该节点为一个整体进行操作，尤其是在删除时
+
+```js
+function filterEmptyText(selection, range) {
+  // const selection = document.getSelection()
+  // const range = selection.getRangeAt(0)
+
+  // 获取当前文本节点的父节点
+  const parentNode = range.commonAncestorContainer.parentNode
+  // 是否处在变量文本节点的末尾
+  const isLast = range.commonAncestorContainer.length === range.endOffset
+  // 当键盘按键处于操作中时，相关逻辑不处理
+  if (parentNode && isLast && !keywordObj.isDoing) {
+    const isVarSpan = parentNode.nodeName === 'SPAN' && /\$\{(.+?)\}/.test(parentNode.innerHTML)
+    const isNextSibing = parentNode.nextSibling && parentNode.nextSibling.nodeName === 'SPAN'
+    // 控制光标和空白符的关系
+    if (isVarSpan && isNextSibing) {
+      // 1. 空白占位符存在，向后移动一位
+      console.log('符合1')
+      const myRange = document.createRange()
+      myRange.selectNodeContents(parentNode.nextSibling)
+      myRange.collapse(true)
+      selection.removeAllRanges()
+      selection.addRange(myRange)
+    } else if (isVarSpan && !isNextSibing) {
+      // 2. 空白占位符不存在，创建
+      console.log('符合2')
+      if (keywordObj.isDeleteKey) {
+        // 删除逻辑，直接删除整个变量，通过 isDeleteKey 避免影响光标位置
+        parentNode.parentNode.removeChild(parentNode)
+      } else {
+        // 插入空白占位符
+        editor.value.selection.createEmptyRange()
+      }
+    }
+  }
+}
+```
 
 ## 总结
 

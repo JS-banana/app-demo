@@ -16,23 +16,26 @@
   </div>
 </template>
 <script setup>
-import { onMounted, onUnmounted, ref, shallowRef } from 'vue'
+import { onMounted, onUnmounted, reactive, ref, shallowRef } from 'vue'
 import E from 'wangeditor'
 import debounce from 'lodash.debounce'
 import clonedeep from 'lodash.clonedeep'
 
-// wangeditor编辑器实例
-const editor = shallowRef()
-// 编辑器DOM
-const editorBox = shallowRef()
-// 弹窗DOM
-const tipRef = shallowRef()
-// 弹窗开关
-const isShow = ref(false)
-// keyword 已输入的变量字符
-const keyword_str = ref('')
-// 弹窗 top 值（为了弹窗始终跟随光标所在位置）
-const boxTop = ref(42)
+// DOM 相关
+const editor = shallowRef() // wangeditor编辑器实例
+const editorBox = shallowRef() // 编辑器DOM
+const tipRef = shallowRef() // 弹窗DOM
+
+// 响应式数据相关
+const isShow = ref(false) // 弹窗开关
+const boxTop = ref(42) // 弹窗 top 值（为了弹窗始终跟随光标所在位置）
+
+// 键盘按键相关
+const keywordObj = reactive({
+  currentStr: '', // ${} 中当前已输入的变量字符
+  isDoing: false, // 按键是否为操作中
+  isDeleteKey: false // 是否为删除键
+})
 
 
 // 列表数据源（一般是通过接口或者prop传入）
@@ -103,6 +106,16 @@ const onWindowKeyUp = debounce((ev) => {
   console.log('key', ev.key)
   const key = ev.key
 
+  keywordObj.isDoing = true
+  keywordObj.isDeleteKey = false
+
+  if (key === 'Backspace') {
+    keywordObj.isDeleteKey = true
+    // 删除按键时，需要手动调用一次 selectionchange，触发对应逻辑走一遍
+    selectionchange()
+    return
+  }
+
   if (key === '$') {
     isShow.value = true
     const selection = document.getSelection()
@@ -121,6 +134,41 @@ const onWindowKeyUp = debounce((ev) => {
 }, 10)
 
 
+function filterEmptyText(selection, range) {
+  // const selection = document.getSelection()
+  // const range = selection.getRangeAt(0)
+
+  // 获取当前文本节点的父节点
+  const parentNode = range.commonAncestorContainer.parentNode
+  // 是否处在变量文本节点的末尾
+  const isLast = range.commonAncestorContainer.length === range.endOffset
+  // 当键盘按键处于操作中时，相关逻辑不处理
+  if (parentNode && isLast && !keywordObj.isDoing) {
+    const isVarSpan = parentNode.nodeName === 'SPAN' && /\$\{(.+?)\}/.test(parentNode.innerHTML)
+    const isNextSibing = parentNode.nextSibling && parentNode.nextSibling.nodeName === 'SPAN'
+    // 控制光标和空白符的关系
+    if (isVarSpan && isNextSibing) {
+      // 1. 空白占位符存在，向后移动一位
+      console.log('符合1')
+      const myRange = document.createRange()
+      myRange.selectNodeContents(parentNode.nextSibling)
+      myRange.collapse(true)
+      selection.removeAllRanges()
+      selection.addRange(myRange)
+    } else if (isVarSpan && !isNextSibing) {
+      // 2. 空白占位符不存在，创建
+      console.log('符合2')
+      if (keywordObj.isDeleteKey) {
+        // 删除逻辑，直接删除整个变量，通过 isDeleteKey 避免影响光标位置
+        parentNode.parentNode.removeChild(parentNode)
+      } else {
+        // 插入空白占位符
+        editor.value.selection.createEmptyRange()
+      }
+    }
+  }
+}
+
 function selectionchange() {
   const selection = document.getSelection()
   // 非编辑区禁止触发
@@ -129,8 +177,9 @@ function selectionchange() {
   const range = selection.getRangeAt(0)
   // console.log('range', range)
 
-  // 确定光标位置
+  filterEmptyText(selection, range)
 
+  // 确定光标位置
   // 过滤查找当前文本节点
   const value = range.commonAncestorContainer.data
   if (value && value.indexOf('$') > -1) {
@@ -161,7 +210,7 @@ function selectionchange() {
 
       // 3. 处理关键字匹配
       // 缓存关键字，用户插入替换文本时计算位置
-      keyword_str.value = currentStr
+      keywordObj.currentStr = currentStr
 
       // 过滤匹配模糊查找
       const options = listData.value.filter(n => n.value.toLowerCase().includes(currentStr.toLowerCase()))
@@ -185,6 +234,7 @@ function selectionchange() {
     }
   }
 
+  keywordObj.isDoing = false
 }
 
 function onWindowKeyDown(ev) {
@@ -197,7 +247,10 @@ function onWindowKeyDown(ev) {
 function onOlClick(ev) {
   const { value } = ev.target.dataset
   console.log('value', value)
-  insertField(value)
+  if (value) {
+    insertField(value)
+    isShow.value = false
+  }
 }
 
 function insertField(val) {
@@ -206,8 +259,8 @@ function insertField(val) {
   // 获取位置
   let startOffset = document.getSelection().focusOffset
   // 当 ${} 中存在已输入的匹配字符时，需要计算对应字符长度
-  if (keyword_str.value) {
-    startOffset = document.getSelection().focusOffset - keyword_str.value.length
+  if (keywordObj.currentStr) {
+    startOffset = document.getSelection().focusOffset - keywordObj.currentStr.length
   }
 
   startOffset -= 2 // 计算 ${ 2个字符
@@ -256,6 +309,7 @@ body {
     li {
       &:hover {
         background-color: #eee;
+        cursor: pointer;
       }
     }
   }
