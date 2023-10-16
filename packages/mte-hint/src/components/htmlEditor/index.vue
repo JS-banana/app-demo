@@ -1,6 +1,6 @@
 <template>
   <div class="box">
-    <!-- 编辑器 -->
+    <!-- 编辑器外层容器 -->
     <div class="editor—wrapper">
       <div id="toolbar-container"><!-- 工具栏 --></div>
       <div ref="editorBox" id="text-container"><!-- 编辑器 --></div>
@@ -175,7 +175,7 @@ function selectionchange() {
   if (!editorBox.value.contains(selection.anchorNode)) return
 
   const range = selection.getRangeAt(0)
-  // console.log('range', range)
+  console.log('range', range)
 
   filterEmptyText(selection, range)
 

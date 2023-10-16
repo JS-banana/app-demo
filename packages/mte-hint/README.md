@@ -1,12 +1,18 @@
 # 基于富文本编辑器的$关键字智能匹配功能
 
+![$智能提示gif](https://cdn.jsdelivr.net/gh/JS-banana/images/vuepress/mte-hint-3.gif)
+
 富文本编辑器，Multi-function Text Editor, 简称 MTE, 是一种可内嵌于浏览器，可以对文字、图片等进行编辑的，所见即所得的文本编辑器。
+
+<!-- more -->
 
 <!-- 目前，市面上大多富文本编辑器是依靠浏览器提供的contenteditable以及execCommand这两大原生的API实现的。
 ，wangeditor则是其中之一首先，将外部容器（一般为div）的contenteditable属性设置为true，该容器中就可以进行键盘、鼠标等操作了。另外，添加一个工具栏（toolbar），借助 execCommand 命令，实现对容器中内容的编辑功能，比如：文字加粗、斜体、下划线功能等。
 但是，可以发现的是基于这种方案的富文本编辑器功能都比较基础且有限，对于指定关键字的触发无法实现，以及根据键盘输入的内容进行动态的变量匹配也未有实现，而基于此逻辑进一步实现的智能提示匹配更是功能更是没有。 -->
 
-在此，建议先了解下 选区（Selection）和范围（Range）的基本概念 （可以参考这篇文章[利用 javascript 实现富文本编辑器](https://juejin.cn/post/6844903508446019597)）
+在阅读本文前，建议先了解下**选区(Selection)**和**范围(Range)**的基本概念，因为，本文所描述的功能主要基于光标选区的属性和方法实现，后面的代码中会多次出现，提前了解这些知识有助于更好的阅读和理解本文内容。
+
+> 可以参考这篇文章[利用 javascript 实现富文本编辑器](https://juejin.cn/post/6844903508446019597)
 
 ## 前言
 
@@ -17,7 +23,7 @@
 
 业务上的表现是这样的，在逻辑触发时，后端通过 `${xx}` 去筛选替换变量为对应的值，然后发送邮件到对应的用户。
 
-## 功能实现
+## 功能
 
 为了方便用户的使用，我们目前设计了这几个功能点：
 
@@ -26,6 +32,8 @@
 3. 插入到编辑器中的变量以 `${xx}` 这种形式保存，并且支持高亮显示
 4. 支持 `${xx}` 中变量的动态模糊查询（例如：当你在 `${}` 中输入 `send` 时，列表中的 `sendTime`、`sendCount` 应该是匹配在列表中的 ）
 5. 支持对 `${xx}` 的变量识别响应（例如：光标从其他位置移动到 `${}` 中时，会实时地响应匹配其中的变量）
+6. 支持键盘选择，在不使用鼠标的情况下也可以自由选择
+<!-- 7. 虚拟列表优化（不是本文重点，这里不做赘述，感兴趣的可以参见我的另一篇文章） -->
 
 ## $ 关键字触发
 
@@ -44,10 +52,10 @@ DOM结构
 ```html
 <template>
   <div class="box">
-    <!-- 编辑器 -->
+    <!-- 编辑器外层容器 -->
     <div class="editor—wrapper">
       <div id="toolbar-container"><!-- 工具栏 --></div>
-      <div id="text-container"><!-- 编辑器 --></div>
+      <div ref="editorBox" id="text-container"><!-- 编辑器 --></div>
     </div>
     <!-- 弹窗 -->
     <div ref="tipRef" v-show="isShow" class="tip-wrap">我是弹窗</div>
@@ -58,24 +66,36 @@ DOM结构
 JS相关代码
 
 ```js
-import { onMounted, ref, shallowRef } from 'vue'
+import { onMounted, onUnmounted, reactive, ref, shallowRef } from 'vue'
 import E from 'wangeditor'
 
-// wangeditor编辑器实例
-const editor = shallowRef()
-// 编辑器DOM
-const editorBox = shallowRef()
-// 弹窗DOM
-const tipRef = shallowRef()
-// 弹窗开关
-const isShow = ref(false)
+// DOM 相关
+const editor = shallowRef() // wangeditor编辑器实例
+const editorBox = shallowRef() // 编辑器DOM
+const tipRef = shallowRef() // 弹窗DOM
+
+// 响应式数据相关
+const isShow = ref(false) // 弹窗开关
+const boxTop = ref(42) // 弹窗 top 值（为了弹窗始终跟随光标所在位置，默认42为富文本工具栏的高度）
+
+// 键盘按键相关
+const keywordObj = reactive({
+  currentStr: '', // ${} 中当前已输入的变量字符
+  isDoing: false, // 按键是否为操作中
+  isDeleteKey: false // 是否为删除键
+})
 
 // Mounted
 onMounted(() => {
-  editorBox.value = document.getElementById('text-container')
-
+  // 初始化编辑器
   initEditor()
+  // 初始化事件
   initEvents()
+})
+
+onUnmounted(() => {
+  // clear
+  clearEvents()
 })
 
 function initEditor() {
@@ -97,10 +117,12 @@ function initEvents() {
 
 ### 绑定keyup事件
 
+为什么不使用 keydown，和他们的触发时机有关，结合后面涉及到的其他逻辑，这里选择了keyup更为合理。
+
 ```js
 window.addEventListener('keyup', onWindowKeyUp, true)
 
-// 使用防抖函数 debounce 避免重复插入
+// 使用防抖函数 debounce 优化，同时避免 {} 重复插入
 const onWindowKeyUp = debounce((ev) => {
   // console.log('key', ev.key)
   const key = ev.key
@@ -126,13 +148,13 @@ const onWindowKeyUp = debounce((ev) => {
 
 目前该函数可以实现在按下 `$` 按键后，输入 `${}` 并且光标在花括号之中。
 
-按照设想，这时应该再自动触发 `isShow.value=true`，开启弹窗的逻辑，但是，因为在后面的实践过程中，发现这种方式并不好，涉及到用户体验的问题，相应的逻辑请往下看。
+按照设想，这时应该再自动触发 `isShow.value=true`，开启弹窗的逻辑，但是，因为在后面的实践过程中，我发现这种方式并不是最优解，涉及到匹配逻辑和用户体验的问题，因此，弹窗的逻辑我这里进行了调整，放到了 `selectionchange` 事件中进行处理，请耐心往下看😎
 
 ## 选中项自动插入到编辑器中
 
 选中的列表项，会以 `${xx}` 这种形式自动插入到编辑器的当前选区中
 
-简单画一下列表结构：
+简单写个列表，DOM结构如下：
 
 ```html
 <!-- 弹窗 -->
@@ -149,7 +171,7 @@ const onWindowKeyUp = debounce((ev) => {
 </div>
 ```
 
-为了优化性能，我们把点击事件托管在外层DOM上
+为了优化性能，我们把点击事件托管在父节点DOM上
 
 ```js
 // 列表点击事件
@@ -159,23 +181,26 @@ if (tipRef.value) {
 
 function onOlClick(ev) {
   const { value } = ev.target.dataset
-  console.log('value', value)
+  if (value) {
+    console.log('value', value)
+    insertField(value)
+  }
 }
 ```
 
-点击选择这类基本功能不做过多阐述，这里主要说明下如何以 `${xx}` 这种形式自动插入到编辑器的当前选区中
+请思考下，当我们在选中目标选项后，如何把 value 以 `${value}` 这种形式自动插入到编辑器的当前选区中？
 
 ### document.execCommand 方法
 
 当一个div元素被添加`contenteditable`属性且为true时，表示元素可被用户编辑（富文本编辑器的基本逻辑）
 
-该命令是浏览器提供的API，用于配合被`contenteditable`的元素，该方法允许运行命令来操纵可编辑内容区域的元素。
+`document.execCommand` 命令是浏览器提供的API，该方法允许运行命令来操纵可编辑内容区域的元素（比如加粗、下划线等等）。
 
-> document.execCommand 该方法虽然主流浏览器都支持，但现在官方已不再推荐使用，相关分析可以看这篇文章[🎉 富文本编辑器初探](https://juejin.cn/post/6955335319566680077)
+> document.execCommand 方法虽然主流浏览器都支持，但现在官方已不再推荐使用，相关分析可以看这篇文章[🎉 富文本编辑器初探](https://juejin.cn/post/6955335319566680077)
 >
 > 分析源码可知，wangeditor v4版本及以下是基于该属性方法实现的，而 v5.x 版本内核已经完全重构，现在是基于 slate.js 开发的
 
-这里我们还是以这个方案编写用例进行分析，主要讲解下基本思路：
+这里我们还是以这个方案编写用例进行分析，主要讲解下基本思路，先实现 `insertField` 插入方法：
 
 ```js
 function insertField(val) {
@@ -207,19 +232,19 @@ function insertField(val) {
 }
 ```
 
-在选中列表中的某一项时，传入 `value`，调用 `insertField` 方法
+结合代码，简单梳理下逻辑：
 
-把`value`通过 `${}` 进行包裹，得到 `${value}` 这种形式，同时以 `span` 标签进行包裹，以实现字符隔离与颜色高亮
-
-这里的重点是如何恰好替换编辑器中的 ${} 文本，通过 `Range` 对象的 `setStart` 方法，可以重新设置起始位置，
-
-这里计算 `${}` 的前2个字符，得到 -2 的结果，同时删除末尾的 `}` 字符，然后再把结果重新插入到编辑器中即可
+1. 在选中列表中的某一项时，传入 `value`，调用 `insertField` 方法
+2. 把`value`通过 `${}` 进行包裹，得到 `${value}` 这种形式，同时以 `span` 标签进行包裹，以实现字符隔离与颜色高亮
+3. 把最终文本插入到编辑器中
+    - 这里的重点是如何恰好替换编辑器中的 ${} 文本，通过 `Range` 对象的 `setStart` 方法，可以重新设置起始位置
+    - 这里计算 `${}` 的前2个字符，得到 -2 的结果，同时删除末尾的 `}` 字符，然后再把结果重新插入到编辑器中即可
 
 `editor.cmd.do` 是 wangeditor 基于 `document.execCommand` 方法做的一层封装，我们可以直接使用，相关代码见 [wangEditor/blob/v4.7.13/src/editor/command.ts](https://github1s.com/wangeditor-team/wangEditor/blob/v4.7.13/src/editor/command.ts)
 
-最后一行的插入空白占位符 `createEmptyRange` 代码简要说明下：
+对于最后一行的，插入空白占位符 `createEmptyRange` 代码简要说明下：
 
-1. 富文本编辑器默认是通过 `<br>` 充当一个空占位符的，初始结构一般是 `<p><br></p>`，F12查看DOM结构可知（<br>标签用来占位，有内容输入后会自动删除）
+1. 富文本编辑器默认是通过 `<br>` 充当一个空占位符的，初始结构一般是 `<p><br></p>`，F12查看DOM结构可知，我们在使用过程中是无感的（<br>标签用来占位，有内容输入后会自动删除）
 2. 在可编辑状态下，回车换行产生的新结构会默认拷贝之前的内容，包扩节点，类名等各种内容
 
 这里插入空白占位符的主要作用：
@@ -238,7 +263,9 @@ function insertField(val) {
 1. 在编辑器文本末尾输入
 2. 在编辑器任意一行的任意位置输入
 
-这里我们排除了编辑器的 `onChange` 方法，对于文本内任意位置插入编辑难以确定输入，同时也为了在鼠标或者键盘方向键移动到变量区域时能够有更好的交互响应，我选择了 `selectionchange` 事件，监听光标选区。
+因为对文本内任意位置插入编辑时难以确定其位置，这里我们排除了编辑器的 `onChange` 方法。
+
+在通过鼠标或者键盘移动光标时，当光标处于变量区域范围时，为了能够有更好的交互响应，我选择了 `selectionchange` 事件（编辑区内容与光标改变时会触发），可以实时监听光标，这样可以更好的控制光标跟随逻辑。
 
 ```js
 document.removeEventListener('selectionchange', selectionchange)
@@ -250,22 +277,35 @@ function selectionchange() {
 }
 ```
 
-通过 selection 对象获得的 range 对象才是我们操作光标的重点。Range表示包含节点和部分文本节点的文档片段。
+通过 selection 对象获得的 range 对象才是我们操作光标的重点（Range表示包含节点和部分文本节点的文档片段）。
 
 ### 1. 确定光标位置，查找 ${}
 
-Range对象的 startContainer , endContainer, commonAncestorContainer都为 #text 文本节点，对于我们的场景来说并无明显区别，这里我们只查找 ${} 包裹的情况，不考虑跨多个文本节点的复杂场景，只围绕当前单个文本节点处理即可。
+Range对象的 `startContainer` , `endContainer`, `commonAncestorContainer`都为 `#text` 文本节点，对于我们的场景来说并无明显区别，这里我们只查找 `${}` 包裹的情况，不考虑跨多个文本节点的复杂场景，只围绕当前单个文本节点处理即可。
 
-startOffset 和 endOffset 在非托选的情况下，起始和终点值是一样的，对于拖选情况来说，我们的处理方式也没什么区别（拖选的场景基本也可以不用考虑）
+`startOffset` 和 `endOffset` 在非托选的情况下，起始和终点值是一样的，对于拖选情况来说，我们的处理方式也没什么区别（拖选的场景基本也可以不用考虑）
 
-那么有一点需要确定的就是：**我当前的光标是否处于 ${} 之中？**
+什么是拖选、拖蓝？
+
+- 无拖蓝
+
+![无拖选](https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2017/11/3/aefdf72accf2841e45ccfe858642e5a7~tplv-t2oaga2asx-jj-mark:3024:0:0:0:q75.awebp)
+
+- 有拖蓝
+
+![有拖蓝](https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2017/11/3/99754c9c079ef1ea9d87bdd30cb34ce3~tplv-t2oaga2asx-jj-mark:3024:0:0:0:q75.awebp)
+
+**我当前的光标是否处于 ${} 之中？**
+
+![$智能提示gif](https://cdn.jsdelivr.net/gh/JS-banana/images/vuepress/mte-hint-4.gif)
 
 换个角度思考，我们看下光标处于 ${} 之中是怎样的：
 
 1. 光标的左边应该是 ${
 2. 光标的右边应该是 }
+3. 需要考虑范围，一行中也可能存在多个变量
 
-> 在此之前，我们在触发 $ 时，自动拼接了 {} ，从而完成了 ${} 这样的组合，这样可以很好的保证用户输入的一致性，方便我们后面的识别处理。
+> 回忆下上面的键盘事件代码 onWindowKeyUp ，在触发 $ 时，自动拼接了 {} ，从而完成了 ${} 这样的组合，这样可以很好的保证用户输入的一致性，方便我们后面的识别处理。
 
 ```js
 // 获取当前文本节点的 value
@@ -292,7 +332,10 @@ if (value && value.indexOf('$') > -1) {
     }
 
     // 2. 确定光标位置是否在 ${} 内
-    if ((range.startOffset > start && start >= 0) && (range.endOffset <= end && end <= value.length)) {
+    if (
+      (range.startOffset > start && start >= 0) 
+      && (range.endOffset <= end && end <= value.length)
+    ) {
       // ...
     }
 }
@@ -303,6 +346,8 @@ if (value && value.indexOf('$') > -1) {
 那么下一步，我们取到里面的值，进行过滤查找即可
 
 ### 2. 查找关键字
+
+![$智能提示gif](https://cdn.jsdelivr.net/gh/JS-banana/images/vuepress/mte-hint-3.gif)
 
 比如我输入 `${start}`，那么取值就是 start，
 
@@ -357,7 +402,7 @@ boxTop.value = top + textNodeRect.height + 42
 
 一切就绪，控制弹窗的开启和关闭
 
-是的，上面我们删除了在键盘事件输入 $ 时触发开启弹窗的逻辑，放在了这里，想必看到这里，你应该理解了在 selectiononchange 中进行处理的好处，尤其是针对我们的这个场景来说。
+是的，上面我们删除了在键盘事件输入 $ 时触发开启弹窗的逻辑，放在了这里，想必看到这里，你应该理解了选择在 `selectiononchange` 事件中进行处理的好处，尤其是针对我们的这个场景来说。
 
 ```js
 if ((range.startOffset > start && start >= 0) && (range.endOffset <= end && end <= value.length)) {
@@ -376,7 +421,7 @@ if ((range.startOffset > start && start >= 0) && (range.endOffset <= end && end 
 
 ## 空白符的隔离优化处理
 
-其实，到这一步，我们基本实现了相关功能。过，对于目前这种基于原生接口实现的富文本编辑器方案，还是存在一个非常影响体验的地方需要处理优化。
+其实，到这一步，我们基本实现了相关功能。不过，对于目前这种基于原生接口实现的富文本编辑器方案，还是存在一个非常影响体验的地方需要处理优化。
 
 在上面的代码中，我们实现了插入逻辑，与此同时我们需要同步创建一个空白节点，并使光标向后移动一位，为的是在富文本的逻辑中，插入文本后不影响后面的输入。
 
@@ -462,7 +507,15 @@ function filterEmptyText(selection, range) {
 
 ## 总结
 
+富文本编辑器看似简单，其实涉及到的细节也是非常多的。我们习惯了使用成熟的技术框架、插件等来协助我们快速实现业务功能，不过，很多特殊功能也是来自业务需求，这会为我们提供一个深入探索技术的机会，通过结合实际项目和需求反馈得以不断完善我们的功能细节，这也是不断提升自己的过程。
+
+在实现该功能的过程中，我们得到了正反馈，期间我们学习了技术原理，了解了富文本的发展历程，接触到了更先进的实现思想。从依靠浏览器提供的contenteditable以及execCommand这两大原生的API实现一个富文本编辑器（如UEditor、wangEditor） ，到通过数据模型对DOM Tree已经数据的修改操作进行了抽象，使开发者在大部分情况下，不是直接操作的DOM完成的各种功能，而是使用框架构建的模型所提供的API完成的（如Quill.js、ProseMirror、Draft.js、Slate），再到不依赖浏览器的编辑能力，独立实现光标和排版（如Goole Doc，查看DOM结构可以发现是基于canvas实现😮）
+
+技术变化更迭太快了，这么一看我们的这一实现算是非常原始了，不过，万变不离其宗，我们基于简单模型的实现，可以快速让我们了解到其基本原理，并以此为引，不断精进，学习其他内容，最后做到知其然知其所以然。
+
 ## demo地址
+
+<https://github.com/JS-banana/app-demo/tree/main/packages/mte-hint>
 
 ## 资料
 
