@@ -1,16 +1,9 @@
 <template>
   <div ref="refContainer" class="container" @scroll="handleScroll">
-    <div
-      class="infinite-list-height"
-      :style="{ height: `${listHeight}px` }"
-    ></div>
-    <div class="infinite-list" :style="{ transform: transFormOffset }">
-      <div
-        class="infinite-list-item"
-        v-for="item in visibleData"
-        :key="item.id"
-        :style="{ height: `${itemSize}px`, lineHeight: `${itemSize}px` }"
-      >
+    <div class="infinite-list-height" :style="{ height: `${listHeight}px` }"></div>
+    <div class="infinite-list">
+      <div class="infinite-list-item" v-for="item in visibleData" :key="item.id"
+        :style="{ height: `${itemSize}px`, lineHeight: `${itemSize}px` }">
         {{ item.value }}
       </div>
     </div>
@@ -74,10 +67,14 @@ const handleScroll = () => {
 .container {
   width: 360px;
   height: 500px;
+  margin: 50px auto 0;
   position: relative;
   overflow: auto;
-  background-color: #f3f4f7;
+  /* background-color: #f3f4f7; */
+  border-radius: 4px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
 }
+
 .infinite-list-height {
   position: absolute;
   left: 0;
@@ -85,15 +82,35 @@ const handleScroll = () => {
   right: 0;
   z-index: -1;
 }
+
 .infinite-list {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
 }
+
 .infinite-list-item {
-  padding: 4px 8px;
+  padding: 4px 16px;
+  box-sizing: border-box;
   color: coral;
   border-bottom: 1px solid #d7dadf;
+}
+
+.infinite-list-item:hover {
+  cursor: pointer;
+  background-color: #f3f3f3;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background-color: rgba(127, 127, 127, 0.2);
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+  background-color: rgba(127, 127, 127, 0.5);
 }
 </style>
