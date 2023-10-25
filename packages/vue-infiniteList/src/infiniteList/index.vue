@@ -1,7 +1,7 @@
 <template>
   <div ref="refContainer" class="container" @scroll="handleScroll">
     <div class="infinite-list-height" :style="{ height: `${listHeight}px` }"></div>
-    <div class="infinite-list">
+    <div class="infinite-list" :style="{ transform: transFormOffset }">
       <div class="infinite-list-item" v-for="item in visibleData" :key="item.id"
         :style="{ height: `${itemSize}px`, lineHeight: `${itemSize}px` }">
         {{ item.value }}
@@ -15,11 +15,16 @@ import { computed, onMounted, reactive, ref } from "vue";
 const refContainer = ref();
 
 const props = defineProps<{
-  listData: Array<any>;
+  listData: Array<{ id: number; value: string }>;
   itemSize: number;
 }>();
 
-const data = reactive({
+const data = reactive<{
+  screenHeight: number;
+  startOffset: number;
+  start: number;
+  end: number;
+}>({
   // 可视区域高度
   screenHeight: 0,
   // 偏移量
@@ -51,16 +56,12 @@ onMounted(() => {
 const handleScroll = () => {
   // 当前偏移量
   const scrollTop = refContainer.value.scrollTop;
-  console.log("scrollTop", scrollTop);
-
   // 开始索引
   data.start = Math.floor(scrollTop / props.itemSize);
   //结束索引
   data.end = data.start + visibleCount.value;
   // 此时的偏移量
   data.startOffset = scrollTop - (scrollTop % props.itemSize);
-
-  console.log("data.startOffset", data.startOffset);
 };
 </script>
 <style scoped>
@@ -70,7 +71,6 @@ const handleScroll = () => {
   margin: 50px auto 0;
   position: relative;
   overflow: auto;
-  /* background-color: #f3f4f7; */
   border-radius: 4px;
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
 }
